@@ -1,11 +1,12 @@
 package com.arkhos.stratus.config;
 
 /**
- * Immutable configuration for a Stratus VOS session.
- * Build with the fluent builder: {@code StratusConfig.builder("host", 23).build()}.
+ * Configuración inmutable de una sesión Stratus VOS.
+ * Se construye con el builder fluente: {@code StratusConfig.builder("host", 23).build()}.
  *
- * <p>To switch between environments (mock / real host) change only host and port;
- * all other defaults are designed for a standard Stratus VOS TELNET session.</p>
+ * <p>Para cambiar de entorno (mock / host real) basta con modificar host y puerto;
+ * el resto de los valores por defecto están diseñados para una sesión TELNET
+ * estándar de Stratus VOS.</p>
  */
 public final class StratusConfig {
 
@@ -63,29 +64,29 @@ public final class StratusConfig {
             this.port = port;
         }
 
-        /** Terminal type advertised during TELNET negotiation (default: VT100). */
+        /** Tipo de terminal anunciado durante la negociación TELNET (por defecto: VT100). */
         public Builder terminalType(String t) { this.terminalType = t; return this; }
 
-        /** Screen dimensions reported via NAWS and used for the screen buffer (default: 24x80). */
+        /** Dimensiones de pantalla reportadas y usadas para el buffer (por defecto: 24x80). */
         public Builder size(int rows, int cols) { this.rows = rows; this.cols = cols; return this; }
 
-        /** TCP connect timeout in milliseconds (default: 10000). */
+        /** Timeout de conexión TCP en milisegundos (por defecto: 10 000). */
         public Builder connectTimeoutMs(int ms) { this.connectTimeoutMs = ms; return this; }
 
         /**
-         * Activates raw-capture mode: every byte received from the host is logged at
-         * DEBUG level in hex and ASCII. Use this to capture a real Stratus VOS session
-         * and diagnose protocol differences. Can also be set via system property
-         * {@code -Dstratus.rawCapture=true}.
+         * Activa el modo raw-capture: cada byte recibido del host se loguea a nivel
+         * DEBUG en hex y ASCII. Útil para capturar una sesión real de Stratus VOS
+         * y diagnosticar diferencias de protocolo. También se puede activar con la
+         * propiedad de sistema {@code -Dstratus.rawCapture=true}.
          */
         public Builder rawCapture(boolean enabled) { this.rawCapture = enabled; return this; }
 
-        /** Character encoding for converting bytes to chars (default: ISO-8859-1). */
+        /** Codificación de caracteres para convertir bytes a chars (por defecto: ISO-8859-1). */
         public Builder charset(String cs) { this.charset = cs; return this; }
 
         public StratusConfig build() {
-            if (host == null || host.isEmpty()) throw new IllegalStateException("host is required");
-            if (port < 1 || port > 65535)      throw new IllegalStateException("invalid port: " + port);
+            if (host == null || host.isEmpty()) throw new IllegalStateException("host es obligatorio");
+            if (port < 1 || port > 65535)      throw new IllegalStateException("puerto inválido: " + port);
             return new StratusConfig(this);
         }
     }

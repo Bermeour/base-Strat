@@ -3,24 +3,26 @@ package com.arkhos.stratus.session;
 import com.arkhos.stratus.terminal.ScreenSnapshot;
 
 /**
- * Event callbacks for a {@link StratusSession}.
- * Implementations must be thread-safe: callbacks arrive from the reader thread.
+ * Callbacks de eventos para una {@link StratusSession}.
+ *
+ * <p>Las implementaciones deben ser hilo-seguras: los callbacks llegan desde
+ * el hilo lector en segundo plano, no desde el hilo que llama a la sesión.</p>
  */
 public interface SessionListener {
 
     /**
-     * Called after every burst of VT100/ANSI data has been parsed and the screen
-     * buffer has settled. The snapshot is an immutable copy safe to inspect from
-     * any thread.
+     * Llamado tras cada ráfaga de datos VT100/ANSI que haya sido parseada
+     * y reflejada en el buffer de pantalla. El snapshot es una copia inmutable
+     * segura para inspeccionar desde cualquier hilo.
      */
     void onScreenUpdated(ScreenSnapshot screen);
 
-    /** Called once the TELNET connection is established. */
+    /** Llamado una vez establecida la conexión TELNET. */
     default void onConnected() {}
 
-    /** Called when the connection is closed (cleanly or due to error). */
+    /** Llamado cuando la conexión se cierra (normalmente o por error). */
     default void onDisconnected() {}
 
-    /** Called when an I/O error occurs in the reader thread. */
+    /** Llamado cuando ocurre un error de E/S en el hilo lector. */
     default void onError(Exception e) {}
 }

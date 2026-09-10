@@ -11,9 +11,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests for {@link StratusSession} against {@link MockVt100Server}.
+ * Pruebas de integración de {@link StratusSession} contra {@link MockVt100Server}.
  *
- * <p>All tests run entirely against the in-process mock — no real Stratus host needed.</p>
+ * <p>Todas las pruebas corren contra el mock en proceso; no se necesita acceso
+ * a un host Stratus VOS real.</p>
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class StratusSessionTest {
@@ -23,7 +24,7 @@ class StratusSessionTest {
 
     @BeforeAll
     static void startServer() throws Exception {
-        server = new MockVt100Server(0); // 0 = random free port
+        server = new MockVt100Server(0); // 0 = puerto libre aleatorio
         server.start();
         server.awaitReady();
         port = server.getPort();
@@ -42,9 +43,7 @@ class StratusSessionTest {
 
     private static final long SCREEN_TIMEOUT = 8000; // ms
 
-    // -------------------------------------------------------------------------
-    // Basic connection
-    // -------------------------------------------------------------------------
+    // ── Conexión básica ───────────────────────────────────────────────────────
 
     @Test
     @Order(1)
@@ -60,18 +59,16 @@ class StratusSessionTest {
     void loginScreenAppearsAfterConnect() throws Exception {
         try (StratusSession s = new StratusSession(config())) {
             s.connect();
-            boolean found = s.waitForText("Username", SCREEN_TIMEOUT);
-            assertTrue(found, "Expected 'Username' prompt on login screen");
+            // waitForText lanza StratusTimeoutException si no aparece; si llega aquí, fue encontrado
+            s.waitForText("Username", SCREEN_TIMEOUT);
 
             ScreenSnapshot snap = s.getScreen();
             assertNotNull(snap);
-            assertTrue(snap.containsText("Stratus VOS"), "Expected title on login screen");
+            assertTrue(snap.containsText("Stratus VOS"), "Se esperaba el título en la pantalla de login");
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Login flow
-    // -------------------------------------------------------------------------
+    // ── Flujo de login ────────────────────────────────────────────────────────
 
     @Test
     @Order(3)
@@ -79,13 +76,13 @@ class StratusSessionTest {
         try (StratusSession s = new StratusSession(config())) {
             s.connect();
 
-            assertTrue(s.waitForText("Username", SCREEN_TIMEOUT), "Login screen not shown");
-            s.sendText(MockVt100Server.VALID_USER + "\r");
+            // Encadenamiento fluente: lanza StratusTimeoutException en cada paso si falla
+            s.waitForText("Username", SCREEN_TIMEOUT)
+             .sendText(MockVt100Server.VALID_USER + "\r")
+             .waitForText("Password", SCREEN_TIMEOUT)
+             .sendText(MockVt100Server.VALID_PASS + "\r")
+             .waitForText("Enter selection", SCREEN_TIMEOUT);
 
-            assertTrue(s.waitForText("Password", SCREEN_TIMEOUT), "Password prompt not shown");
-            s.sendText(MockVt100Server.VALID_PASS + "\r");
-
-            assertTrue(s.waitForText("Enter selection", SCREEN_TIMEOUT), "Main menu not shown after login");
             ScreenSnapshot menu = s.getScreen();
             assertTrue(menu.containsText("MAIN MENU"));
             assertTrue(menu.containsText("System Information"));
@@ -105,14 +102,12 @@ class StratusSessionTest {
             s.waitForText("Password", SCREEN_TIMEOUT);
             s.sendText("wrongpassword\r");
 
-            boolean loginBack = s.waitForText("Username", SCREEN_TIMEOUT);
-            assertTrue(loginBack, "Should return to login screen after bad password");
+            // Si vuelve a la pantalla de login, la espera no lanza excepción
+            s.waitForText("Username", SCREEN_TIMEOUT);
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Menu navigation
-    // -------------------------------------------------------------------------
+    // ── Navegación del menú ───────────────────────────────────────────────────
 
     @Test
     @Order(5)
@@ -121,13 +116,15 @@ class StratusSessionTest {
             s.connect();
             login(s);
 
-            s.sendText("1\r");
-            // Wait for last element on detail screen so all rows are rendered
-            assertTrue(s.waitForText("Press ENTER", SCREEN_TIMEOUT));
+            // Esperamos el último elemento de la pantalla de detalle para garantizar
+            // que todas las filas han sido parseadas antes de leer coordenadas
+            s.sendText("1\r")
+             .waitForText("Press ENTER", SCREEN_TIMEOUT);
+
             ScreenSnapshot detail = s.getScreen();
-            assertTrue(detail.containsText("SYSTEM INFORMATION"), "Expected title on detail screen");
-            assertTrue(detail.containsText("stratus-mock-01"),    "Expected hostname in detail screen");
-            assertTrue(detail.containsText("Stratus VOS"),        "Expected OS info in detail screen");
+            assertTrue(detail.containsText("SYSTEM INFORMATION"), "Se esperaba el título de detalle");
+            assertTrue(detail.containsText("stratus-mock-01"),    "Se esperaba el hostname en detalle");
+            assertTrue(detail.containsText("Stratus VOS"),        "Se esperaba info del SO en detalle");
         }
     }
 
@@ -138,31 +135,29 @@ class StratusSessionTest {
             s.connect();
             login(s);
 
-            s.sendText("1\r");
-            s.waitForText("Press ENTER", SCREEN_TIMEOUT); // wait for full detail screen
+            s.sendText("1\r")
+             .waitForText("Press ENTER", SCREEN_TIMEOUT); // pantalla de detalle completa
 
-            // Any input returns to menu; wait for full menu (last element = "Enter selection")
-            s.sendKey(TerminalKey.ENTER);
-            assertTrue(s.waitForText("Enter selection", SCREEN_TIMEOUT), "Expected to return to main menu");
+            // Cualquier entrada regresa al menú; esperamos el último elemento del menú
+            s.sendKey(TerminalKey.ENTER)
+             .waitForText("Enter selection", SCREEN_TIMEOUT);
         }
     }
 
-    // -------------------------------------------------------------------------
-    // getScreen() / coordinate reading
-    // -------------------------------------------------------------------------
+    // ── Lectura de pantalla / coordenadas ─────────────────────────────────────
 
     @Test
     @Order(7)
     void readTextAtCoordinates() throws Exception {
         try (StratusSession s = new StratusSession(config())) {
             s.connect();
-            login(s); // login() already waits for full menu (including row 4)
+            login(s); // login() ya espera "Enter selection" (fila 9), garantizando menú completo
 
             ScreenSnapshot snap = s.getScreen();
-            // Row 4 should contain the first menu item
+            // La fila 4 debe contener el primer ítem del menú
             String row4 = snap.getLine(4);
             assertTrue(row4.contains("System Information"),
-                    "Row 4 should contain 'System Information', got: '" + row4 + "'");
+                    "La fila 4 debería contener 'System Information', obtuvo: '" + row4 + "'");
         }
     }
 
@@ -179,15 +174,13 @@ class StratusSessionTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // SessionListener
-    // -------------------------------------------------------------------------
+    // ── SessionListener ───────────────────────────────────────────────────────
 
     @Test
     @Order(9)
     void sessionListenerReceivesEvents() throws Exception {
         AtomicReference<ScreenSnapshot> received = new AtomicReference<ScreenSnapshot>(null);
-        final boolean[] connected  = {false};
+        final boolean[] connected    = {false};
         final boolean[] disconnected = {false};
 
         SessionListener listener = new SessionListener() {
@@ -203,14 +196,12 @@ class StratusSessionTest {
         s.waitForText("Username", SCREEN_TIMEOUT);
         s.close();
 
-        assertTrue(connected[0],    "onConnected should have been called");
-        assertNotNull(received.get(), "onScreenUpdated should have been called at least once");
-        // disconnected is eventually true but timing-dependent; skip assertion
+        assertTrue(connected[0],     "onConnected debería haberse llamado");
+        assertNotNull(received.get(), "onScreenUpdated debería haberse llamado al menos una vez");
+        // disconnected es eventualmente true pero depende del hilo; no se aserta
     }
 
-    // -------------------------------------------------------------------------
-    // waitForText timeout
-    // -------------------------------------------------------------------------
+    // ── Timeout de waitForText ────────────────────────────────────────────────
 
     @Test
     @Order(10)
@@ -220,26 +211,31 @@ class StratusSessionTest {
             s.waitForText("Username", SCREEN_TIMEOUT);
 
             long start = System.currentTimeMillis();
-            boolean found = s.waitForText("NONEXISTENT_TOKEN_12345", 500);
-            long elapsed = System.currentTimeMillis() - start;
-
-            assertFalse(found, "Should return false when text never appears");
-            assertTrue(elapsed >= 400, "Should have waited close to the full timeout");
+            try {
+                s.waitForText("NONEXISTENT_TOKEN_12345", 500);
+                fail("Debería haber lanzado StratusTimeoutException");
+            } catch (StratusTimeoutException e) {
+                long elapsed = System.currentTimeMillis() - start;
+                assertTrue(elapsed >= 400,
+                        "Debería haber esperado cerca del timeout completo, pero tardó solo " + elapsed + " ms");
+            }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helper
-    // -------------------------------------------------------------------------
+    // ── Helper de login ───────────────────────────────────────────────────────
 
+    /**
+     * Realiza el flujo completo de login y espera hasta que el menú principal
+     * esté completamente renderizado (incluyendo "Enter selection" en la fila 9),
+     * evitando condiciones de carrera al leer coordenadas de pantalla.
+     */
     private void login(StratusSession s) throws Exception {
-        s.waitForText("Username", SCREEN_TIMEOUT);
-        s.sendText(MockVt100Server.VALID_USER + "\r");
-        s.waitForText("Password", SCREEN_TIMEOUT);
-        s.sendText(MockVt100Server.VALID_PASS + "\r");
-        // Wait for "Enter selection" (last element on row 9) rather than "MAIN MENU"
-        // (row 1), so the full menu screen is guaranteed to have been received
-        // and parsed before we read any coordinates.
-        s.waitForText("Enter selection", SCREEN_TIMEOUT);
+        s.waitForText("Username", SCREEN_TIMEOUT)
+         .sendText(MockVt100Server.VALID_USER + "\r")
+         .waitForText("Password", SCREEN_TIMEOUT)
+         .sendText(MockVt100Server.VALID_PASS + "\r")
+         // Espera "Enter selection" (último elemento en fila 9), no "MAIN MENU" (fila 1),
+         // para garantizar que toda la pantalla del menú ha llegado y fue parseada.
+         .waitForText("Enter selection", SCREEN_TIMEOUT);
     }
 }

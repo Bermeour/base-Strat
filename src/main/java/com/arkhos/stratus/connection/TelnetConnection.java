@@ -13,24 +13,24 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * TELNET transport layer for a Stratus VOS connection.
+ * Capa de transporte TELNET para la conexión a Stratus VOS.
  *
- * <p>Wraps Apache Commons Net {@link TelnetClient} to handle the TELNET IAC
- * negotiation (RFC 854/855/856) automatically. After {@link #connect()} the caller
- * receives clean {@link InputStream} / {@link OutputStream} streams with no IAC
- * bytes — those are handled transparently by Commons Net.</p>
+ * <p>Envuelve {@link TelnetClient} de Apache Commons Net para gestionar
+ * automáticamente la negociación IAC (RFC 854/855/856). Tras {@link #connect()},
+ * el llamador recibe streams limpios sin bytes IAC — Commons Net los procesa
+ * de forma transparente.</p>
  *
- * <p>Negotiated options:</p>
+ * <p>Opciones negociadas:</p>
  * <ul>
- *   <li>TERMINAL-TYPE — we announce the type from {@link StratusConfig#terminalType()}</li>
- *   <li>SUPPRESS-GO-AHEAD — both ends agree to suppress GA</li>
- *   <li>ECHO — server echoes (DO ECHO from our side)</li>
+ *   <li>TERMINAL-TYPE — anunciamos el tipo configurado en {@link StratusConfig#terminalType()}</li>
+ *   <li>SUPPRESS-GO-AHEAD — ambos extremos suprimen GA</li>
+ *   <li>ECHO — el servidor hace eco (DO ECHO desde nuestra parte)</li>
  * </ul>
  *
- * <p>Raw capture: if enabled in config or via the system property
- * {@code stratus.rawCapture=true}, every received byte is logged at DEBUG level
- * before being delivered to the caller. Useful for diagnosing protocol differences
- * on a real Stratus host.</p>
+ * <p>Raw capture: si está habilitado en la config o mediante la propiedad de sistema
+ * {@code stratus.rawCapture=true}, cada byte recibido se loguea a nivel DEBUG antes
+ * de entregarse al llamador. Útil para diagnosticar diferencias de protocolo en un
+ * host Stratus real.</p>
  */
 public final class TelnetConnection {
 
@@ -46,33 +46,33 @@ public final class TelnetConnection {
     }
 
     /**
-     * Opens the TCP socket and completes TELNET negotiation.
+     * Abre el socket TCP y completa la negociación TELNET.
      *
-     * @throws IOException if the connection cannot be established
+     * @throws IOException si no se puede establecer la conexión
      */
     public void connect() throws IOException {
         client = new TelnetClient(config.terminalType());
 
-        // TERMINAL-TYPE: we will supply our type when the server requests it
+        // TERMINAL-TYPE: suministramos nuestro tipo cuando el servidor lo solicite
         TerminalTypeOptionHandler ttHandler = new TerminalTypeOptionHandler(
                 config.terminalType(),
-                false,  // initLocal  — don't initiate WILL
-                false,  // initRemote — don't initiate DO
-                true,   // acceptLocal  — accept if server sends DO
-                false   // acceptRemote — don't accept WILL from server
+                false,  // initLocal  — no iniciamos WILL
+                false,  // initRemote — no iniciamos DO
+                true,   // acceptLocal  — aceptamos si el servidor envía DO
+                false   // acceptRemote — no aceptamos WILL del servidor
         );
 
-        // SUPPRESS-GO-AHEAD: both directions
+        // SUPPRESS-GO-AHEAD: ambas direcciones
         SuppressGAOptionHandler gaHandler = new SuppressGAOptionHandler(
                 true, true, true, true
         );
 
-        // ECHO: we ask the server to echo (DO ECHO)
+        // ECHO: pedimos al servidor que haga eco (DO ECHO)
         EchoOptionHandler echoHandler = new EchoOptionHandler(
-                false, // initLocal  — we don't echo locally
-                true,  // initRemote — we ask server to echo (DO ECHO)
+                false, // initLocal  — no hacemos eco local
+                true,  // initRemote — pedimos eco al servidor (DO ECHO)
                 false, // acceptLocal
-                true   // acceptRemote — accept server WILL ECHO
+                true   // acceptRemote — aceptamos WILL ECHO del servidor
         );
 
         try {
@@ -80,7 +80,7 @@ public final class TelnetConnection {
             client.addOptionHandler(gaHandler);
             client.addOptionHandler(echoHandler);
         } catch (Exception e) {
-            throw new IOException("Failed to register TELNET option handlers", e);
+            throw new IOException("Error al registrar manejadores de opciones TELNET", e);
         }
 
         client.setConnectTimeout(config.connectTimeoutMs());
@@ -89,10 +89,10 @@ public final class TelnetConnection {
                 "true".equalsIgnoreCase(System.getProperty("stratus.rawCapture"));
 
         if (rawCapture) {
-            // Commons Net spy stream: every received byte is copied here before
-            // being forwarded to the normal InputStream. Perfect for protocol capture.
+            // Spy stream de Commons Net: cada byte recibido se copia aquí antes de
+            // entregarse al InputStream normal. Ideal para captura de protocolo.
             client.registerSpyStream(new RawCaptureStream(log));
-            log.info("[TELNET] Raw capture mode enabled — received bytes will be logged at DEBUG");
+            log.info("[TELNET] Modo raw-capture activo — bytes recibidos se loguean a nivel DEBUG");
         }
 
         log.info("[TELNET] Connecting to {}:{} (term={}, timeout={}ms)",
@@ -107,7 +107,7 @@ public final class TelnetConnection {
     }
 
     /**
-     * Closes the connection. Safe to call multiple times.
+     * Cierra la conexión. Seguro de llamar múltiples veces.
      */
     public void disconnect() {
         if (client != null && client.isConnected()) {
@@ -115,7 +115,7 @@ public final class TelnetConnection {
                 client.disconnect();
                 log.info("[TELNET] Disconnected from {}:{}", config.host(), config.port());
             } catch (IOException e) {
-                log.debug("[TELNET] Error while disconnecting: {}", e.getMessage());
+                log.debug("[TELNET] Error al desconectar: {}", e.getMessage());
             }
         }
     }
@@ -125,32 +125,30 @@ public final class TelnetConnection {
     }
 
     /**
-     * Returns the de-IAC'd input stream.
-     * Read bytes from this stream to receive terminal data from the host.
+     * Retorna el stream de entrada sin bytes IAC.
+     * Lee de aquí para recibir datos de terminal del host.
      */
     public InputStream getInputStream() {
         return inputStream;
     }
 
     /**
-     * Returns the output stream.
-     * Write bytes here to send data to the host (Commons Net handles IAC escaping).
+     * Retorna el stream de salida.
+     * Escribe aquí para enviar datos al host (Commons Net gestiona el escape de IAC).
      */
     public OutputStream getOutputStream() {
         return outputStream;
     }
 
-    // -------------------------------------------------------------------------
-    // Raw capture stream
-    // -------------------------------------------------------------------------
+    // ── Stream de captura raw ─────────────────────────────────────────────────
 
     /**
-     * OutputStream that logs every received byte in hex + ASCII for debugging.
-     * Registered with TelnetClient.registerSpyStream().
+     * OutputStream que loguea cada byte recibido en hex + ASCII para diagnóstico.
+     * Se registra con {@code TelnetClient.registerSpyStream()}.
      */
     private static final class RawCaptureStream extends java.io.OutputStream {
 
-        private static final int COLS = 16;
+        private static final int COLS = 16;  // bytes por línea de log
         private final Logger log;
         private final byte[] lineBuf = new byte[COLS];
         private int pos = 0;

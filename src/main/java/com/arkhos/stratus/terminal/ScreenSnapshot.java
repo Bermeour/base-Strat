@@ -1,17 +1,21 @@
 package com.arkhos.stratus.terminal;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Immutable snapshot of the screen at a point in time.
- * Thread-safe: may be read from any thread after construction.
+ * Instantánea inmutable de la pantalla en un momento dado.
+ * Hilo-segura: puede leerse desde cualquier hilo tras su construcción.
  *
- * <p>Row and column indices are <strong>1-based</strong> in the public API,
- * matching the convention used by terminal documentation and automation scripts.</p>
+ * <p>Los índices de fila y columna son <strong>1-based</strong> en la API pública,
+ * siguiendo la convención usada por la documentación de terminales y los scripts
+ * de automatización.</p>
  */
 public final class ScreenSnapshot {
 
-    private final char[] chars;  // row-major, length = rows*cols
+    private final char[] chars;  // row-major, longitud = rows*cols
     private final int[]  attrs;
     private final int rows;
     private final int cols;
@@ -29,32 +33,32 @@ public final class ScreenSnapshot {
     }
 
     // -------------------------------------------------------------------------
-    // Dimensions & cursor
+    // Dimensiones y cursor
     // -------------------------------------------------------------------------
 
     public int rows()      { return rows; }
     public int cols()      { return cols; }
 
-    /** Cursor row, 1-based. */
+    /** Fila del cursor, 1-based. */
     public int cursorRow() { return cursorRow; }
 
-    /** Cursor column, 1-based. */
+    /** Columna del cursor, 1-based. */
     public int cursorCol() { return cursorCol; }
 
     // -------------------------------------------------------------------------
-    // Single-cell access
+    // Acceso a celda individual
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the character at the given 1-based position.
-     * Returns {@code ' '} if coordinates are out of bounds.
+     * Retorna el carácter en la posición indicada (1-based).
+     * Retorna {@code ' '} si las coordenadas están fuera de límites.
      */
     public char charAt(int row, int col) {
         if (row < 1 || row > rows || col < 1 || col > cols) return ' ';
         return chars[(row - 1) * cols + (col - 1)];
     }
 
-    /** SGR attribute bitmask at the given 1-based position (see {@link ScreenBuffer} constants). */
+    /** Máscara de atributos SGR en la posición indicada (1-based); ver constantes en {@link ScreenBuffer}. */
     public int attrAt(int row, int col) {
         if (row < 1 || row > rows || col < 1 || col > cols) return 0;
         return attrs[(row - 1) * cols + (col - 1)];
@@ -65,8 +69,8 @@ public final class ScreenSnapshot {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the full content of a row (1-based) as a string.
-     * Trailing spaces are preserved; the string is always {@link #cols()} characters long.
+     * Retorna el contenido completo de una fila (1-based) como string.
+     * Los espacios finales se preservan; el string siempre tiene {@link #cols()} caracteres.
      */
     public String getLine(int row) {
         if (row < 1 || row > rows) return "";
@@ -74,11 +78,11 @@ public final class ScreenSnapshot {
     }
 
     /**
-     * Returns a substring within a row.
+     * Retorna una subcadena dentro de una fila.
      *
-     * @param row    1-based row
-     * @param col    1-based starting column
-     * @param length number of characters to read
+     * @param row    fila (1-based)
+     * @param col    columna inicial (1-based)
+     * @param length número de caracteres a leer
      */
     public String getText(int row, int col, int length) {
         if (row < 1 || row > rows) return "";
@@ -89,16 +93,16 @@ public final class ScreenSnapshot {
     }
 
     /**
-     * Returns the trimmed text from a region.
-     * Useful for reading field values that may be padded with spaces.
+     * Retorna el texto de una región recortado de espacios.
+     * Útil para leer valores de campo que pueden estar rellenos con espacios.
      */
     public String getTextTrimmed(int row, int col, int length) {
         return getText(row, col, length).trim();
     }
 
     /**
-     * Full screen content as a single string with newlines between rows.
-     * Trailing spaces on each line are not stripped, preserving column alignment.
+     * Contenido completo de la pantalla como un único string con saltos de línea entre filas.
+     * Los espacios finales de cada línea no se eliminan, preservando la alineación por columnas.
      */
     public String getText() {
         StringBuilder sb = new StringBuilder((cols + 1) * rows);
@@ -110,13 +114,55 @@ public final class ScreenSnapshot {
     }
 
     // -------------------------------------------------------------------------
-    // Search
+    // Acceso a rangos y regiones
     // -------------------------------------------------------------------------
 
     /**
-     * Returns {@code true} if the given text appears anywhere on the screen.
-     * The search is performed on the flat screen buffer (spans only within rows,
-     * not across row boundaries).
+     * Retorna las filas en el rango indicado (ambos extremos inclusivos, 1-based).
+     * Las filas fuera de límites se omiten silenciosamente.
+     * Cada string tiene exactamente {@link #cols()} caracteres (sin recortar).
+     */
+    public List<String> getLines(int fromRow, int toRow) {
+        List<String> result = new ArrayList<String>();
+        int f = Math.max(1, fromRow);
+        int t = Math.min(rows, toRow);
+        for (int r = f; r <= t; r++) {
+            result.add(getLine(r));
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    /**
+     * Extrae una región rectangular de la pantalla.
+     *
+     * <p>Retorna una lista de strings, una por fila, recortadas al ancho de la región.
+     * Coordenadas fuera de límites se ajustan al borde de la pantalla.</p>
+     *
+     * @param row1 fila inicial (1-based, inclusiva)
+     * @param col1 columna inicial (1-based, inclusiva)
+     * @param row2 fila final (1-based, inclusiva)
+     * @param col2 columna final (1-based, inclusiva)
+     */
+    public List<String> getRegion(int row1, int col1, int row2, int col2) {
+        int r1 = Math.max(1, row1);
+        int r2 = Math.min(rows, row2);
+        int c1 = Math.max(1, col1);
+        int c2 = Math.min(cols, col2);
+        int len = Math.max(0, c2 - c1 + 1);
+        List<String> result = new ArrayList<String>();
+        for (int r = r1; r <= r2; r++) {
+            result.add(len > 0 ? getText(r, c1, len) : "");
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    // -------------------------------------------------------------------------
+    // Búsqueda
+    // -------------------------------------------------------------------------
+
+    /**
+     * Retorna {@code true} si el texto aparece en algún lugar de la pantalla.
+     * La búsqueda se realiza fila por fila (no cruza límites de fila).
      */
     public boolean containsText(String text) {
         for (int r = 1; r <= rows; r++) {
@@ -126,8 +172,15 @@ public final class ScreenSnapshot {
     }
 
     /**
-     * Returns the 1-based row number of the first row containing {@code text},
-     * or {@code -1} if not found.
+     * Retorna {@code true} si el texto aparece en la fila indicada (1-based).
+     */
+    public boolean containsTextInRow(String text, int row) {
+        return row >= 1 && row <= rows && getLine(row).contains(text);
+    }
+
+    /**
+     * Retorna el número de fila (1-based) de la primera fila que contiene
+     * {@code text}, o {@code -1} si no se encuentra.
      */
     public int rowOf(String text) {
         for (int r = 1; r <= rows; r++) {
@@ -137,7 +190,76 @@ public final class ScreenSnapshot {
     }
 
     /**
-     * Returns {@code true} if any row matches the given regular expression.
+     * Retorna la columna (1-based) donde empieza {@code text} en la fila indicada,
+     * o {@code -1} si no se encuentra o la fila está fuera de límites.
+     */
+    public int colOf(String text, int row) {
+        if (row < 1 || row > rows) return -1;
+        int idx = getLine(row).indexOf(text);
+        return idx >= 0 ? idx + 1 : -1;
+    }
+
+    /**
+     * Retorna todas las posiciones (fila, columna) donde empieza {@code text},
+     * en orden de fila primero, columna después.
+     *
+     * <p>Útil para encontrar un campo que puede aparecer en varias filas,
+     * o para verificar que un elemento sólo aparece una vez.</p>
+     */
+    public List<ScreenPosition> findText(String text) {
+        List<ScreenPosition> result = new ArrayList<ScreenPosition>();
+        for (int r = 1; r <= rows; r++) {
+            String line = getLine(r);
+            int idx = 0;
+            while ((idx = line.indexOf(text, idx)) >= 0) {
+                result.add(new ScreenPosition(r, idx + 1));
+                idx += text.length();
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    /**
+     * Lee el valor que aparece inmediatamente después de una etiqueta en la misma fila.
+     *
+     * <p>Muy útil para formularios VT100 donde los campos tienen el formato:</p>
+     * <pre>
+     *   Username:  admin
+     *   Status:    Active
+     * </pre>
+     * <pre>
+     *   String user   = snap.getFieldAfter(3, "Username:");  // "admin"
+     *   String status = snap.getFieldAfter(4, "Status:");    // "Active"
+     * </pre>
+     *
+     * @param row   fila donde buscar la etiqueta (1-based)
+     * @param label texto de la etiqueta
+     * @return texto que sigue a la etiqueta en la misma fila, recortado de espacios;
+     *         cadena vacía si la etiqueta no se encuentra en esa fila
+     */
+    public String getFieldAfter(int row, String label) {
+        if (row < 1 || row > rows) return "";
+        String line = getLine(row);
+        int idx = line.indexOf(label);
+        if (idx < 0) return "";
+        int start = idx + label.length();
+        return start < line.length() ? line.substring(start).trim() : "";
+    }
+
+    /**
+     * Busca la etiqueta en toda la pantalla y retorna el valor que la sigue en
+     * la misma fila. Versión conveniente de {@link #getFieldAfter(int, String)}
+     * cuando no se conoce la fila exacta.
+     *
+     * @return texto que sigue a la etiqueta, recortado; cadena vacía si no se encuentra
+     */
+    public String getFieldAfter(String label) {
+        int row = rowOf(label);
+        return row > 0 ? getFieldAfter(row, label) : "";
+    }
+
+    /**
+     * Retorna {@code true} si alguna fila coincide con la expresión regular dada.
      */
     public boolean matchesPattern(Pattern pattern) {
         for (int r = 1; r <= rows; r++) {
@@ -147,11 +269,11 @@ public final class ScreenSnapshot {
     }
 
     // -------------------------------------------------------------------------
-    // Debug
+    // Depuración
     // -------------------------------------------------------------------------
 
     /**
-     * Renders the screen as a bordered ASCII block, useful for logging and tests.
+     * Renderiza la pantalla como un bloque ASCII con bordes, útil para logs y tests.
      */
     public String toDebugString() {
         StringBuilder sb = new StringBuilder();

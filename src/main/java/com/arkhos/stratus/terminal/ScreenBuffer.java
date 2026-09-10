@@ -3,13 +3,15 @@ package com.arkhos.stratus.terminal;
 import java.util.Arrays;
 
 /**
- * Mutable VT100/ANSI screen buffer.
+ * Buffer de pantalla VT100/ANSI mutable.
  *
- * <p>Coordinates are 0-based internally. The public {@link ScreenSnapshot} API
- * exposes 1-based row/col to match common terminal conventions.</p>
+ * <p>Las coordenadas son 0-based internamente. La API pública de
+ * {@link ScreenSnapshot} las expone como 1-based para coincidir con la
+ * convención habitual de la documentación de terminales.</p>
  *
- * <p>All mutations happen on the reader thread; callers that need a thread-safe
- * view must call {@link #snapshot()} which returns an immutable copy.</p>
+ * <p>Todas las mutaciones ocurren en el hilo lector. Los llamadores que
+ * necesitan una vista hilo-segura deben invocar {@link #snapshot()}, que
+ * retorna una copia inmutable.</p>
  */
 public final class ScreenBuffer {
 
@@ -17,7 +19,7 @@ public final class ScreenBuffer {
     private final int cols;
 
     private final char[] chars;   // row-major: chars[r*cols+c]
-    private final int[]  attrs;   // SGR attribute bitmask per cell
+    private final int[]  attrs;   // máscara de atributos SGR por celda
 
     private int cursorRow;  // 0-based
     private int cursorCol;  // 0-based
@@ -25,12 +27,12 @@ public final class ScreenBuffer {
     private int savedCursorRow;
     private int savedCursorCol;
 
-    private int scrollTop;    // 0-based inclusive
-    private int scrollBottom; // 0-based inclusive
+    private int scrollTop;    // 0-based, inclusivo
+    private int scrollBottom; // 0-based, inclusivo
 
     private boolean autoWrap = true;
 
-    // SGR attribute bits
+    // Bits de atributos SGR
     static final int ATTR_BOLD      = 1;
     static final int ATTR_UNDERLINE = 2;
     static final int ATTR_BLINK     = 4;
@@ -47,9 +49,7 @@ public final class ScreenBuffer {
         Arrays.fill(chars, ' ');
     }
 
-    // -------------------------------------------------------------------------
-    // Cursor movement
-    // -------------------------------------------------------------------------
+    // ── Movimiento del cursor ─────────────────────────────────────────────────
 
     public void setCursor(int row, int col) {
         cursorRow = clampRow(row);
@@ -89,7 +89,7 @@ public final class ScreenBuffer {
     }
 
     public void tab() {
-        // advance to next tab stop (every 8 cols)
+        // avanza al siguiente tabulador (cada 8 columnas)
         cursorCol = Math.min(cols - 1, (cursorCol / 8 + 1) * 8);
     }
 
@@ -103,9 +103,7 @@ public final class ScreenBuffer {
         cursorCol = savedCursorCol;
     }
 
-    // -------------------------------------------------------------------------
-    // Character output
-    // -------------------------------------------------------------------------
+    // ── Salida de caracteres ──────────────────────────────────────────────────
 
     public void putChar(char c) {
         if (cursorCol >= cols) {
@@ -122,11 +120,9 @@ public final class ScreenBuffer {
         cursorCol++;
     }
 
-    // -------------------------------------------------------------------------
-    // Erase operations
-    // -------------------------------------------------------------------------
+    // ── Operaciones de borrado ────────────────────────────────────────────────
 
-    /** Erase in display: mode 0=cursor to end, 1=start to cursor, 2=entire screen. */
+    /** Borrado en pantalla: modo 0=cursor al final, 1=inicio al cursor, 2=pantalla completa. */
     public void eraseInDisplay(int mode) {
         if (mode == 0) {
             fill(cursorRow, cursorCol, rows - 1, cols - 1);
@@ -137,7 +133,7 @@ public final class ScreenBuffer {
         }
     }
 
-    /** Erase in line: mode 0=cursor to end, 1=start to cursor, 2=entire line. */
+    /** Borrado en línea: modo 0=cursor al final, 1=inicio al cursor, 2=línea completa. */
     public void eraseInLine(int mode) {
         if (mode == 0) {
             fill(cursorRow, cursorCol, cursorRow, cols - 1);
@@ -148,13 +144,13 @@ public final class ScreenBuffer {
         }
     }
 
-    /** Erase n characters starting at cursor without moving cursor. */
+    /** Borra n caracteres desde el cursor sin moverlo. */
     public void eraseCharacters(int n) {
         int end = Math.min(cols - 1, cursorCol + n - 1);
         fill(cursorRow, cursorCol, cursorRow, end);
     }
 
-    /** Delete n characters at cursor (remaining chars shift left, gap filled with spaces). */
+    /** Elimina n caracteres en el cursor (los restantes se desplazan a la izquierda, el hueco se rellena con espacios). */
     public void deleteCharacters(int n) {
         n = Math.max(1, n);
         int srcStart = index(cursorRow, cursorCol + n);
@@ -168,7 +164,7 @@ public final class ScreenBuffer {
         }
     }
 
-    /** Insert n blank characters at cursor (existing chars shift right, overflow discarded). */
+    /** Inserta n caracteres en blanco en el cursor (los existentes se desplazan a la derecha, el desbordamiento se descarta). */
     public void insertCharacters(int n) {
         n = Math.max(1, n);
         int srcStart = index(cursorRow, cursorCol);
@@ -180,17 +176,15 @@ public final class ScreenBuffer {
         fill(cursorRow, cursorCol, cursorRow, cursorCol + n - 1);
     }
 
-    // -------------------------------------------------------------------------
-    // Scroll operations
-    // -------------------------------------------------------------------------
+    // ── Operaciones de scroll ─────────────────────────────────────────────────
 
-    /** Set vertical scrolling region (1-based, inclusive). */
+    /** Define la región de scroll vertical (1-based, inclusivo). */
     public void setScrollRegion(int top, int bottom) {
         this.scrollTop    = clampRow(top - 1);
         this.scrollBottom = clampRow(bottom - 1);
     }
 
-    /** Scroll content of scroll region up by n lines; new lines are blank. */
+    /** Desplaza el contenido de la región de scroll hacia arriba n líneas; las nuevas líneas quedan en blanco. */
     public void scrollUp(int n) {
         n = Math.max(1, n);
         int regionRows = scrollBottom - scrollTop + 1;
@@ -205,7 +199,7 @@ public final class ScreenBuffer {
         fill(scrollBottom - n + 1, 0, scrollBottom, cols - 1);
     }
 
-    /** Scroll content of scroll region down by n lines; new lines are blank at top. */
+    /** Desplaza el contenido de la región de scroll hacia abajo n líneas; las nuevas líneas en blanco aparecen arriba. */
     public void scrollDown(int n) {
         n = Math.max(1, n);
         int regionRows = scrollBottom - scrollTop + 1;
@@ -220,7 +214,7 @@ public final class ScreenBuffer {
         fill(scrollTop, 0, scrollTop + n - 1, cols - 1);
     }
 
-    /** Insert n blank lines at current cursor row, scrolling content down. */
+    /** Inserta n líneas en blanco en la fila del cursor, desplazando el contenido hacia abajo. */
     public void insertLines(int n) {
         n = Math.max(1, n);
         int regionRows = scrollBottom - cursorRow + 1;
@@ -234,7 +228,7 @@ public final class ScreenBuffer {
         }
     }
 
-    /** Delete n lines at current cursor row, scrolling content up. */
+    /** Elimina n líneas en la fila del cursor, desplazando el contenido hacia arriba. */
     public void deleteLines(int n) {
         n = Math.max(1, n);
         int regionRows = scrollBottom - cursorRow + 1;
@@ -248,11 +242,9 @@ public final class ScreenBuffer {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // SGR attributes
-    // -------------------------------------------------------------------------
+    // ── Atributos SGR ─────────────────────────────────────────────────────────
 
-    /** Apply SGR (Select Graphic Rendition) parameters. */
+    /** Aplica los parámetros SGR (Select Graphic Rendition). */
     public void applySgr(int[] params) {
         if (params.length == 0) {
             currentAttr = 0;
@@ -269,21 +261,17 @@ public final class ScreenBuffer {
                 case 24: currentAttr &= ~ATTR_UNDERLINE;       break;
                 case 25: currentAttr &= ~ATTR_BLINK;           break;
                 case 27: currentAttr &= ~ATTR_REVERSE;         break;
-                // 30-37: foreground color; 40-47: background color — stored but not rendered
+                // 30-37: color de frente; 40-47: color de fondo — se almacenan pero no se renderizan
                 default: break;
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Mode flags
-    // -------------------------------------------------------------------------
+    // ── Flags de modo ─────────────────────────────────────────────────────────
 
     public void setAutoWrap(boolean on) { this.autoWrap = on; }
 
-    // -------------------------------------------------------------------------
-    // Full reset
-    // -------------------------------------------------------------------------
+    // ── Reset completo ────────────────────────────────────────────────────────
 
     public void reset() {
         Arrays.fill(chars, ' ');
@@ -296,23 +284,21 @@ public final class ScreenBuffer {
         autoWrap     = true;
     }
 
-    // -------------------------------------------------------------------------
-    // Accessors
-    // -------------------------------------------------------------------------
+    // ── Accesores ─────────────────────────────────────────────────────────────
 
     public int rows()      { return rows; }
     public int cols()      { return cols; }
     public int cursorRow() { return cursorRow; } // 0-based
     public int cursorCol() { return cursorCol; } // 0-based
 
-    /** Returns a line as a string (0-based row), trailing spaces preserved. */
+    /** Retorna una fila como string (fila 0-based), con espacios finales preservados. */
     public String getLine(int row) {
         return new String(chars, row * cols, cols);
     }
 
     /**
-     * Takes an immutable snapshot of the current screen state.
-     * Safe to pass to other threads and retain after further mutations.
+     * Toma una instantánea inmutable del estado actual de la pantalla.
+     * Es seguro pasarla a otros hilos y retenerla después de más mutaciones.
      */
     public ScreenSnapshot snapshot() {
         char[] copy = Arrays.copyOf(chars, chars.length);
@@ -320,9 +306,7 @@ public final class ScreenBuffer {
         return new ScreenSnapshot(copy, acp, rows, cols, cursorRow + 1, cursorCol + 1);
     }
 
-    // -------------------------------------------------------------------------
-    // Internals
-    // -------------------------------------------------------------------------
+    // ── Internos ──────────────────────────────────────────────────────────────
 
     private int index(int row, int col) {
         return row * cols + col;
@@ -331,7 +315,7 @@ public final class ScreenBuffer {
     private int clampRow(int r) { return Math.max(0, Math.min(rows - 1, r)); }
     private int clampCol(int c) { return Math.max(0, Math.min(cols - 1, c)); }
 
-    /** Fill rectangular region with spaces and reset attributes. */
+    /** Rellena la región rectangular con espacios y resetea los atributos. */
     private void fill(int r1, int c1, int r2, int c2) {
         for (int r = r1; r <= r2; r++) {
             int colFrom = (r == r1) ? c1 : 0;
