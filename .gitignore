@@ -1,0 +1,59 @@
+# ─── Build output ────────────────────────────────────────────────────────────
+target/
+build/
+dist/
+
+# Maven wrapper JAR sí se versiona (permite builds sin Maven instalado)
+!.mvn/wrapper/maven-wrapper.jar
+
+# Excepciones: carpetas llamadas "target" o "build" dentro de src no son salida
+!**/src/main/**/target/
+!**/src/test/**/target/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ─── Claude Code ─────────────────────────────────────────────────────────────
+.claude/
+
+# ─── IntelliJ IDEA ───────────────────────────────────────────────────────────
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# ─── VS Code ─────────────────────────────────────────────────────────────────
+.vscode/
+
+# ─── Eclipse ─────────────────────────────────────────────────────────────────
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+
+# ─── NetBeans ────────────────────────────────────────────────────────────────
+/nbproject/private/
+/nbbuild/
+/nbdist/
+/.nb-gradle/
+
+# ─── Sistema operativo ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Kotlin (si se agrega soporte en el futuro) ──────────────────────────────
+.kotlin/
+
+# ─── Logs y temporales ───────────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+*.swo
+
+# ─── Credenciales y configuración local ──────────────────────────────────────
+*.env
+.env*
+application-local.properties
