@@ -69,12 +69,18 @@ final class StratusWaiter {
     boolean waitForUpdate(long timeoutMs) throws InterruptedException {
         log.debug("[WAITER] Esperando cualquier actualizacion (max {} ms)", timeoutMs);
         ScreenSnapshot anterior = ctx.lastSnapshot.get();
-        long limite = System.currentTimeMillis() + timeoutMs;
+        long limite   = System.currentTimeMillis() + timeoutMs;
+        long settleMs = ctx.settleMs;
 
         synchronized (ctx.screenLock) {
             while (ctx.connected.get()) {
                 ScreenSnapshot actual = ctx.lastSnapshot.get();
-                if (actual != null && actual != anterior) return true;
+                if (actual != null && actual != anterior) {
+                    if (settleMs <= 0) return true;
+                    if (esperarQuietud(settleMs, limite)) return true;
+                    anterior = ctx.lastSnapshot.get(); // actualizar referencia tras quietud
+                    continue;
+                }
                 long restante = limite - System.currentTimeMillis();
                 if (restante <= 0) return false;
                 ctx.screenLock.wait(restante);
@@ -89,12 +95,19 @@ final class StratusWaiter {
 
     private boolean esperar(CondicionPantalla condicion, long timeoutMs)
             throws InterruptedException {
-        long limite = System.currentTimeMillis() + timeoutMs;
+        long limite   = System.currentTimeMillis() + timeoutMs;
+        long settleMs = ctx.settleMs;
 
         synchronized (ctx.screenLock) {
             while (ctx.connected.get()) {
                 ScreenSnapshot snap = ctx.lastSnapshot.get();
-                if (snap != null && condicion.cumplida(snap)) return true;
+                if (snap != null && condicion.cumplida(snap)) {
+                    if (settleMs <= 0) return true;
+                    // Esperar hasta que no llegue ningún update nuevo por settleMs
+                    if (esperarQuietud(settleMs, limite)) return true;
+                    // Si hubo más updates, volver al bucle principal
+                    continue;
+                }
                 long restante = limite - System.currentTimeMillis();
                 if (restante <= 0) return false;
                 ctx.screenLock.wait(restante);
@@ -103,6 +116,33 @@ final class StratusWaiter {
         // La conexión cayó: revisamos el último snapshot disponible
         ScreenSnapshot snap = ctx.lastSnapshot.get();
         return snap != null && condicion.cumplida(snap);
+    }
+
+    /**
+     * Espera hasta que no llegue ningún update durante {@code settleMs} ms.
+     * Debe llamarse dentro de {@code synchronized(ctx.screenLock)}.
+     * Retorna {@code true} si se alcanzó la quietud, {@code false} si venció el timeout total.
+     */
+    private boolean esperarQuietud(long settleMs, long limiteTotal)
+            throws InterruptedException {
+        ScreenSnapshot snapAntes = ctx.lastSnapshot.get();
+        long limiteSettle = System.currentTimeMillis() + settleMs;
+
+        while (true) {
+            long restanteSettle = limiteSettle - System.currentTimeMillis();
+            long restanteTotal  = limiteTotal  - System.currentTimeMillis();
+            if (restanteTotal <= 0) return false;
+            if (restanteSettle <= 0) return true; // pantalla quieta durante settleMs
+
+            ctx.screenLock.wait(Math.min(restanteSettle, restanteTotal));
+
+            ScreenSnapshot snapAhora = ctx.lastSnapshot.get();
+            if (snapAhora != snapAntes) {
+                // Llegó un update nuevo — reiniciar el contador de quietud
+                snapAntes    = snapAhora;
+                limiteSettle = System.currentTimeMillis() + settleMs;
+            }
+        }
     }
 
     // ── Condiciones internas ─────────────────────────────────────────────────

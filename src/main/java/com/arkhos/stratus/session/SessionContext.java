@@ -31,7 +31,11 @@ final class SessionContext {
     /** Charset configurado para codificar/decodificar texto. */
     final String charset;
 
-    SessionContext(String charset) {
-        this.charset = charset;
+    /** Milisegundos de quietud que deben pasar tras cumplirse una condición antes de retornar. */
+    final long settleMs;
+
+    SessionContext(String charset, long settleMs) {
+        this.charset  = charset;
+        this.settleMs = settleMs;
     }
 }

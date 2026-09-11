@@ -1,204 +1,374 @@
 # base-stratus
 
-Programmatic Stratus VOS (OpenVOS) terminal client via TELNET/VT100-ANSI.
-
-Same philosophy as `base-as400`: speaks the wire protocol directly — no desktop
-emulator, no UI automation (no Appium, no WinAppDriver). Connects via TELNET,
-interprets the VT100/ANSI escape stream, maintains an in-memory screen buffer,
-and exposes a clean Java API.
+Librería Java para automatizar sesiones de terminal Stratus VOS mediante TELNET/VT100-ANSI.
 
 ---
 
-## Architecture
+## Requisitos
 
-```
-base-stratus/
-├── connection/    TelnetConnection — socket + TELNET IAC negotiation (via Commons Net)
-├── terminal/      Vt100Parser + ScreenBuffer + ScreenSnapshot + TerminalKey
-├── session/       StratusSession (public API) + SessionListener
-└── config/        StratusConfig (immutable builder)
-
-src/test/
-└── testsupport/   MockVt100Server — in-process TELNET/VT100 mock
-```
-
-### Layer responsibilities
-
-| Layer | What it does | What it does NOT do |
-|-------|-------------|----------------------|
-| `connection` | Opens TCP socket; handles TELNET IAC bytes, option negotiation (TERMINAL-TYPE, SUPPRESS-GA, ECHO). Returns clean streams. | Knows nothing about VT100 |
-| `terminal` | Parses VT100/ANSI escape sequences byte-by-byte; mutates `ScreenBuffer`; produces immutable `ScreenSnapshot` | Does not touch the network |
-| `session` | Wires the layers; runs background reader thread; exposes `sendText`, `sendKey`, `waitForText`, `getScreen` | No protocol details |
-| `config` | Immutable value object, builder pattern | No logic |
+- Java 8 o superior
+- Maven 3.x
 
 ---
 
-## Quick start
-
-### Run the tests (no network needed)
-
-```bash
-mvn test
-```
-
-All tests run against the in-process `MockVt100Server`. No real Stratus host required.
-
-To see raw byte logs during tests:
-
-```bash
-mvn test -Dstratus.rawCapture=true
-```
-
-### Run the end-to-end example against the mock
-
-```bash
-mvn package -DskipTests
-java -cp target/base-stratus-1.0.0-SNAPSHOT.jar examples/LoginAndNavigate.java --mock
-```
-
-### Point to a real Stratus VOS host
-
-Change only these values — no code changes needed:
-
-```bash
-java -cp target/base-stratus-1.0.0-SNAPSHOT.jar examples/LoginAndNavigate.java \
-     --host your-vos-host.example.com \
-     --port 23 \
-     --user myuser \
-     --pass mypassword
-```
-
-Or in code:
+## Inicio rápido
 
 ```java
-StratusConfig config = StratusConfig.builder("your-vos-host.example.com", 23)
-        .terminalType("VT100")   // change to "ANSI" if needed
-        .size(24, 80)
-        .connectTimeoutMs(15_000)
-        .rawCapture(false)       // set true for protocol debugging
-        .charset("ISO-8859-1")   // adjust if the host uses a different encoding
+StratusConfig config = StratusConfig.builder("mi-servidor", 23)
+        .settleMs(400)   // espera que la pantalla se estabilice tras cada wait
+        .build();
+
+try (StratusSession s = new StratusSession(config)) {
+    s.connect()
+     .waitForUpdate(15)
+     .sendText("login\r")
+     .waitForText("Username:", 5)
+     .sendText("miusuario\r")
+     .waitForText("Password:", 5)
+     .sendText("mipassword\r")
+     .waitForUpdate(10);
+
+    System.out.println(s.getScreen().getText());
+}
+```
+
+---
+
+## Configuración — `StratusConfig`
+
+```java
+StratusConfig config = StratusConfig.builder("host", 23)
+    .terminalType("VT100")      // tipo de terminal (default: VT100)
+    .size(24, 80)               // filas x columnas (default: 24x80)
+    .connectTimeoutMs(10_000)   // timeout de conexión TCP en ms (default: 10000)
+    .charset("ISO-8859-1")      // codificación de caracteres (default: ISO-8859-1)
+    .settleMs(400)              // ms de quietud tras cada wait (default: 0, desactivado)
+    .rawCapture(true)           // loguea cada byte recibido en hex, útil para diagnóstico
+    .build();
+```
+
+### `settleMs` — estabilización automática
+
+Cuando está activo, cada `waitForText` y `waitForUpdate` espera hasta que la pantalla
+no reciba ningún update durante ese tiempo antes de retornar. Evita que el código
+continúe mientras el host todavía está pintando la pantalla.
+
+```java
+.settleMs(300)  // espera 300 ms sin cambios antes de continuar
+```
+
+Valores típicos: **200–500 ms** dependiendo de la velocidad del host.
+
+---
+
+## Sesión — `StratusSession`
+
+Punto de entrada principal. Implementa `Closeable` (úsalo en try-with-resources).
+
+### Conexión
+
+```java
+StratusSession s = new StratusSession(config);
+s.connect();          // abre el socket y negocia TELNET
+s.disconnect();       // cierra la conexión
+s.isConnected();      // → boolean
+```
+
+### Envío de datos
+
+```java
+s.sendText("login\r");               // envía texto (\r simula Enter)
+s.sendKey(TerminalKey.ENTER);        // envía una tecla especial
+s.sendRaw(new byte[]{0x1B, 0x5B});   // envía bytes crudos
+s.sendRaw(TerminalKey.ctrl('C'));     // envía Ctrl+C
+```
+
+### Esperas
+
+Los tiempos se pueden expresar en **segundos** (`int`) o **milisegundos** (`long`):
+
+```java
+s.waitForText("Username:", 5);              // 5 segundos (int)
+s.waitForText("Username:", 5_000L);         // 5000 milisegundos (long)
+s.waitForUpdate(10);                        // espera cualquier actualización de pantalla
+s.waitForTextInRow("Error", 24, 5);         // espera texto en una fila específica
+s.waitForPattern(Pattern.compile("\\$"), 5);// espera que una fila coincida con regex
+```
+
+Si el tiempo se agota, todos los métodos lanzan `StratusTimeoutException` (RuntimeException):
+
+```java
+try {
+    s.waitForText("Username:", 5);
+} catch (StratusTimeoutException e) {
+    System.err.println("No apareció el prompt: " + e.getMessage());
+}
+```
+
+### Encadenamiento
+
+Todos los métodos retornan `this`, lo que permite encadenar:
+
+```java
+s.connect()
+ .waitForUpdate(15)
+ .sendText("login\r")
+ .waitForText("Username:", 5)
+ .sendText("usuario\r")
+ .waitForText("Password:", 5)
+ .sendText("password\r")
+ .waitForUpdate(10);
+```
+
+---
+
+## Lectura de pantalla — `ScreenSnapshot`
+
+Se obtiene con `s.getScreen()`. Todas las coordenadas son **1-based**.
+
+### Leer texto
+
+```java
+ScreenSnapshot snap = s.getScreen();
+
+snap.getLine(3);                   // fila completa (80 chars con espacios)
+snap.getText(3, 10, 20);           // fila 3, desde col 10, 20 caracteres
+snap.getTextTrimmed(3, 10, 20);    // igual pero sin espacios al inicio/fin
+snap.getText();                    // pantalla completa como string con \n
+snap.getLines(2, 8);               // filas 2 a 8 → List<String>
+snap.getRegion(2, 1, 8, 40);       // región rectangular → List<String>
+```
+
+### Buscar texto
+
+```java
+snap.containsText("Error");              // ¿existe en alguna fila? → boolean
+snap.containsTextInRow("Status", 5);     // ¿existe en la fila 5? → boolean
+snap.rowOf("Status");                    // número de fila donde está (-1 si no existe)
+snap.colOf("Status", 3);                 // columna donde empieza en fila 3 (-1 si no)
+snap.findText("Error");                  // lista de ScreenPosition(fila, col)
+```
+
+### Leer campos de formulario
+
+Ideal para pantallas con etiquetas y valores:
+
+```
+Username:  admin
+Status:    Active
+```
+
+```java
+snap.getFieldAfter(3, "Username:");   // "admin"  — busca en la fila 3
+snap.getFieldAfter("Status:");        // "Active" — busca en toda la pantalla
+```
+
+### Cursor y dimensiones
+
+```java
+snap.cursorRow();   // fila del cursor (1-based)
+snap.cursorCol();   // columna del cursor (1-based)
+snap.rows();        // total de filas
+snap.cols();        // total de columnas
+```
+
+---
+
+## Teclas especiales — `TerminalKey`
+
+```java
+// Básicas
+s.sendKey(TerminalKey.ENTER);
+s.sendKey(TerminalKey.TAB);
+s.sendKey(TerminalKey.ESCAPE);
+s.sendKey(TerminalKey.BACKSPACE);
+
+// Cursor
+s.sendKey(TerminalKey.UP);
+s.sendKey(TerminalKey.DOWN);
+s.sendKey(TerminalKey.LEFT);
+s.sendKey(TerminalKey.RIGHT);
+
+// Navegación
+s.sendKey(TerminalKey.HOME);
+s.sendKey(TerminalKey.END);
+s.sendKey(TerminalKey.PAGE_UP);
+s.sendKey(TerminalKey.PAGE_DOWN);
+s.sendKey(TerminalKey.INSERT);
+s.sendKey(TerminalKey.DELETE);
+
+// Teclas de función (F1–F12)
+s.sendKey(TerminalKey.F1);
+s.sendKey(TerminalKey.F5);
+s.sendKey(TerminalKey.F12);
+
+// Ctrl + letra (constantes predefinidas)
+s.sendKey(TerminalKey.CTRL_C);   // SIGINT
+s.sendKey(TerminalKey.CTRL_X);   // Ctrl+X
+s.sendKey(TerminalKey.CTRL_Z);   // suspender
+
+// Ctrl dinámico (cualquier letra)
+s.sendRaw(TerminalKey.ctrl('X'));  // Ctrl+X
+s.sendRaw(TerminalKey.ctrl('c'));  // Ctrl+C (mayúscula o minúscula)
+```
+
+---
+
+## Visor de pantalla — `ScreenViewer`
+
+Ventana Swing que muestra la terminal en tiempo real. Completamente opcional.
+
+```java
+ScreenViewer viewer = new ScreenViewer("Stratus VOS — producción");
+viewer.show();
+session.addListener(viewer);  // se refresca automáticamente con cada update
+```
+
+### Captura de pantalla
+
+```java
+// Solo imagen en memoria
+BufferedImage img = viewer.captureScreenshot();
+
+// Guardar con nombre explícito
+viewer.saveScreenshot(new File("login.png"));
+
+// Guardar con nombre automático en un directorio
+// → capturas/stratus-20260910-125854-321.png
+viewer.saveScreenshot("capturas/");
+```
+
+El screenshot funciona aunque la ventana esté oculta (renderizado off-screen).
+
+### Ciclo de vida
+
+```java
+viewer.show();     // abre / trae al frente
+viewer.hide();     // oculta sin destruir
+viewer.dispose();  // libera todos los recursos
+```
+
+> **Nota**: en servidores Linux sin pantalla (headless), el constructor lanza
+> `IllegalStateException`. Para screenshots en headless usa Xvfb.
+
+---
+
+## Eventos — `SessionListener`
+
+```java
+session.addListener(new SessionListener() {
+    @Override
+    public void onScreenUpdated(ScreenSnapshot snap) {
+        // Llamado cada vez que llega un update del host
+    }
+    @Override
+    public void onConnected() { }
+
+    @Override
+    public void onDisconnected() { }
+
+    @Override
+    public void onError(Exception e) { }
+});
+```
+
+`onConnected`, `onDisconnected` y `onError` tienen implementación vacía por defecto.
+
+---
+
+## Ejemplos completos
+
+### Login con visor
+
+```java
+StratusConfig config = StratusConfig.builder("mi-servidor", 23)
+        .settleMs(400)
+        .build();
+
+ScreenViewer viewer = new ScreenViewer("Stratus VOS");
+viewer.show();
+
+try (StratusSession s = new StratusSession(config)) {
+    s.addListener(viewer);
+    s.connect()
+     .waitForText("Username:", 10)
+     .sendText("miusuario\r")
+     .waitForText("Password:", 5)
+     .sendText("mipassword\r")
+     .waitForUpdate(10);
+
+    viewer.saveScreenshot("capturas/");
+    Thread.sleep(5000);
+}
+```
+
+### Leer valor de un campo
+
+```java
+s.waitForText("Status:", 5);
+String status = s.getScreen().getFieldAfter("Status:");
+System.out.println("Estado: " + status);
+```
+
+### Navegar un menú y leer resultado
+
+```java
+s.waitForText("Enter selection", 5)
+ .sendText("1\r")
+ .waitForText("Press ENTER", 10);
+
+ScreenSnapshot snap = s.getScreen();
+int filaError = snap.rowOf("Error");
+if (filaError > 0) {
+    System.out.println(snap.getLine(filaError).trim());
+}
+```
+
+### Diagnóstico de protocolo
+
+```java
+StratusConfig config = StratusConfig.builder("mi-servidor", 23)
+        .rawCapture(true)   // loguea todos los bytes en hex a nivel DEBUG
         .build();
 ```
 
 ---
 
-## API reference
+## Ejecutar los ejemplos
 
-### `StratusSession`
+```bash
+# Mock local (sin host real)
+mvn exec:java -Dexec.mainClass="com.arkhos.stratus.examples.LoginExample" \
+    -Dexec.classpathScope="test" -Dexec.args="--mock"
 
-```java
-StratusSession s = new StratusSession(config);
-s.connect();                              // opens socket, starts reader thread
-s.waitForText("Username", 10_000);       // block until text appears or timeout
-s.sendText("myuser\r");                  // send text (include \r for Enter)
-s.sendKey(TerminalKey.F3);               // send special key
-ScreenSnapshot snap = s.getScreen();     // immutable screen state
-s.waitForPattern(Pattern.compile("\\$"), 5_000); // regex wait
-s.disconnect();                           // or use try-with-resources
+# Host real
+mvn exec:java -Dexec.mainClass="com.arkhos.stratus.examples.LoginExample" \
+    -Dexec.args="--host mi-servidor --port 23 --user miuser --pass mipass"
+
+# Con visor de pantalla
+mvn exec:java -Dexec.mainClass="com.arkhos.stratus.examples.LoginExample" \
+    -Dexec.args="--host mi-servidor --user miuser --pass mipass --viewer"
+
+# Ejecutar tests
+mvn test
 ```
 
-### `ScreenSnapshot`
-
-```java
-snap.getText(row, col, length)      // 1-based, fixed-length region
-snap.getTextTrimmed(row, col, len)  // same, trimmed
-snap.getLine(row)                   // full 80-char line
-snap.getText()                      // all rows joined with \n
-snap.containsText("text")           // search anywhere on screen
-snap.rowOf("text")                  // 1-based row number, or -1
-snap.charAt(row, col)               // single character
-snap.toDebugString()                // bordered ASCII dump for logging
-```
-
-### `TerminalKey` (selection)
-
-| Constant | Sequence sent |
-|----------|--------------|
-| `ENTER`  | `\r` |
-| `UP / DOWN / LEFT / RIGHT` | `ESC[A/B/D/C` |
-| `F1–F12` | xterm sequences (`ESC[11~` … `ESC[24~`) |
-| `F1_VT100–F4_VT100` | VT100 app-keypad (`ESC OP` … `ESC OS`) |
-| `PAGE_UP / PAGE_DOWN` | `ESC[5~` / `ESC[6~` |
-| `BACKSPACE` | `DEL` (0x7F) |
-| `CTRL_C` | `ETX` (0x03) |
-
 ---
 
-## Connecting to a real Stratus VOS host
-
-When you run from the machine that has network access:
-
-1. Set `host` and `port` in `StratusConfig`.
-2. Enable raw-capture for the first run:
-   ```java
-   .rawCapture(true)
-   ```
-   or
-   ```bash
-   -Dstratus.rawCapture=true
-   ```
-3. Capture the log output. Each received byte is logged as `[RAW] HH HH ... chars`.
-4. Verify the escape sequences match standard VT100/ANSI.
-
----
-
-## Raw-capture / debugging
-
-Raw-capture mode logs every byte received from the host *before* VT100 parsing:
+## Estructura del proyecto
 
 ```
-[RAW] 1B 5B 48 1B 5B 32 4A 1B 5B 31 3B 31 48   .[H.[2J.[1;1H
-[RAW] 57 65 6C 63 6F 6D 65                       Welcome
+src/main/java/com/arkhos/stratus/
+├── config/
+│   └── StratusConfig.java            Configuración inmutable de la sesión
+├── session/
+│   ├── StratusSession.java           Fachada principal (punto de entrada)
+│   ├── SessionListener.java          Interface de eventos
+│   └── StratusTimeoutException.java  Excepción de timeout (RuntimeException)
+├── terminal/
+│   ├── ScreenSnapshot.java           Instantánea inmutable de la pantalla
+│   ├── ScreenPosition.java           Coordenada (fila, columna) 1-based
+│   └── TerminalKey.java              Teclas especiales VT100/ANSI
+└── ui/
+    └── ScreenViewer.java             Visor Swing con soporte de screenshot
 ```
-
-Enable via config (`.rawCapture(true)`) or the system property
-`-Dstratus.rawCapture=true` (works at test time with `mvn test -Dstratus.rawCapture=true`).
-
-This is the primary tool for diagnosing protocol differences on a real host.
-
----
-
-## Protocol assumptions & what to do if they differ
-
-The following assumptions were made based on standard TELNET/VT100 documentation.
-None of them have been verified against a live Stratus VOS host yet.
-
-| Assumption | Where it lives | What to adjust if wrong |
-|---|---|---|
-| Host speaks VT100/ANSI (ECMA-48) escape sequences | `Vt100Parser` | Extend `handleCsi()` or add new states for proprietary sequences |
-| Encoding is ISO-8859-1 | `StratusConfig.charset()` | Change to `UTF-8` or another charset |
-| TELNET negotiation: server sends DO TERMINAL-TYPE, WILL SUPPRESS-GA, WILL ECHO | `TelnetConnection` | Adjust option handlers or write a raw negotiation if Commons Net's model doesn't fit |
-| Screen is 24 rows × 80 columns | `StratusConfig.size()` | Change to 25×80 or 132×whatever the host actually uses |
-| Enter sends CR (`\r`) | `TerminalKey.ENTER` | Change sequence to `\r\n` or `\n` |
-| F-keys use xterm sequences (`ESC[11~` etc.) | `TerminalKey` | Switch to VT100 app-keypad variants (`F1_VT100`) |
-| TELNET port is 23 | `StratusConfig.builder(host, port)` | Change port number |
-
-**Workflow when real host differs:**
-
-1. Enable raw-capture, connect, capture traffic.
-2. Compare raw bytes to expected VT100 sequences.
-3. If sequences are non-standard: add handling in `Vt100Parser.handleCsi()` or a new state.
-4. If negotiation differs: adjust `TelnetConnection` option handlers.
-5. The `StratusSession` API and tests remain unchanged — only the parser layer needs updates.
-
----
-
-## Java version compatibility
-
-Target: **Java 8** source and bytecode (see `pom.xml`). Tested on JDK 8 and JDK 17.
-
-Restrictions applied throughout the codebase:
-- No `var`, no records, no text blocks, no switch expressions
-- No `List.of()`, `Map.of()` — uses `Arrays.asList()` / `new HashMap<>()`
-- No JPMS `module-info.java`
-- No APIs introduced after Java 8
-
----
-
-## Dependencies
-
-| Artifact | Purpose |
-|---|---|
-| `commons-net:commons-net:3.9.0` | TELNET IAC negotiation (RFC 854/855/856) |
-| `slf4j-api` + `slf4j-simple` | Logging (no Logback, no Log4j, no Spring) |
-| `junit-jupiter` (test) | Unit and integration tests |

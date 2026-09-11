@@ -17,13 +17,13 @@ public class QuickConnect {
         try (StratusSession s = new StratusSession(config)) {
             s.addListener(viewer);
             s.connect()
-             .waitForUpdate(15_000)
+             .waitForUpdate(15)
              .sendText("login\r")
-             .waitForText("Username:", 5_000)
+             .waitForText("Username:", 5)
              .sendText("xxxxx\r")
-             .waitForText("Password:", 5_000)
+             .waitForText("Password:", 5)
              .sendText("xxxxx\r")
-             .waitForUpdate(10_000);
+             .waitForUpdate(10);
 
             System.out.println(s.getScreen().getText());
 

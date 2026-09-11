@@ -18,6 +18,7 @@ public final class StratusConfig {
     private final int connectTimeoutMs;
     private final boolean rawCapture;
     private final String charset;
+    private final long settleMs;
 
     private StratusConfig(Builder b) {
         this.host             = b.host;
@@ -28,6 +29,7 @@ public final class StratusConfig {
         this.connectTimeoutMs = b.connectTimeoutMs;
         this.rawCapture       = b.rawCapture;
         this.charset          = b.charset;
+        this.settleMs         = b.settleMs;
     }
 
     public static Builder builder(String host, int port) {
@@ -42,6 +44,7 @@ public final class StratusConfig {
     public int connectTimeoutMs()    { return connectTimeoutMs; }
     public boolean rawCapture()      { return rawCapture; }
     public String charset()          { return charset; }
+    public long settleMs()           { return settleMs; }
 
     @Override
     public String toString() {
@@ -58,6 +61,7 @@ public final class StratusConfig {
         private int connectTimeoutMs = 10_000;
         private boolean rawCapture   = false;
         private String charset       = "ISO-8859-1";
+        private long settleMs        = 0;
 
         private Builder(String host, int port) {
             this.host = host;
@@ -83,6 +87,18 @@ public final class StratusConfig {
 
         /** Codificación de caracteres para convertir bytes a chars (por defecto: ISO-8859-1). */
         public Builder charset(String cs) { this.charset = cs; return this; }
+
+        /**
+         * Tiempo de estabilización en milisegundos (por defecto: 0, desactivado).
+         *
+         * <p>Cuando es mayor que cero, cada {@code waitForText} / {@code waitForUpdate}
+         * espera adicionalmente hasta que la pantalla no reciba ningún nuevo update
+         * durante {@code ms} milisegundos antes de retornar. Esto evita que el código
+         * continúe mientras el host todavía está pintando la pantalla.</p>
+         *
+         * <p>Valores típicos: 200–500 ms.</p>
+         */
+        public Builder settleMs(long ms) { this.settleMs = ms; return this; }
 
         public StratusConfig build() {
             if (host == null || host.isEmpty()) throw new IllegalStateException("host es obligatorio");

@@ -76,7 +76,7 @@ public final class StratusSession implements Closeable {
         this.transporte     = new TelnetConnection(config);
         this.bufferPantalla = new ScreenBuffer(config.rows(), config.cols());
         this.parser         = new Vt100Parser(bufferPantalla, config.charset());
-        this.ctx            = new SessionContext(config.charset());
+        this.ctx            = new SessionContext(config.charset(), config.settleMs());
         this.actions        = new StratusActions(ctx);
         this.waiter         = new StratusWaiter(ctx);
     }
@@ -182,6 +182,12 @@ public final class StratusSession implements Closeable {
         return this;
     }
 
+    /** Igual que {@link #waitForText(String, long)} pero {@code segundos} se expresa en segundos. */
+    public StratusSession waitForText(String texto, int segundos)
+            throws InterruptedException {
+        return waitForText(texto, (long) segundos * 1_000);
+    }
+
     /**
      * Bloquea hasta que alguna fila de la pantalla coincida con el patrón regex.
      *
@@ -195,6 +201,12 @@ public final class StratusSession implements Closeable {
                     "Patrón no encontrado en " + timeoutMs + " ms: " + patron);
         }
         return this;
+    }
+
+    /** Igual que {@link #waitForPattern(Pattern, long)} pero {@code segundos} se expresa en segundos. */
+    public StratusSession waitForPattern(Pattern patron, int segundos)
+            throws InterruptedException {
+        return waitForPattern(patron, (long) segundos * 1_000);
     }
 
     /**
@@ -233,6 +245,11 @@ public final class StratusSession implements Closeable {
                     "No se recibió ninguna actualización del host en " + timeoutMs + " ms");
         }
         return this;
+    }
+
+    /** Igual que {@link #waitForUpdate(long)} pero {@code segundos} se expresa en segundos. */
+    public StratusSession waitForUpdate(int segundos) throws InterruptedException {
+        return waitForUpdate((long) segundos * 1_000);
     }
 
     // ── Lectura de pantalla ───────────────────────────────────────────────────
