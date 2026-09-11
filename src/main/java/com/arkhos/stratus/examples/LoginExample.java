@@ -57,6 +57,16 @@ public class LoginExample {
 
     public static void main(String[] args) throws Exception {
 
+        if (args.length == 0) {
+            args = new String[]{
+                "--host",    "xxxxx",
+                "--port",    "23",
+                "--user",    "xxxxx",
+                "--pass",    "xxxxx",
+                "--viewer"
+            };
+        }
+
         // ── Parseo de argumentos ─────────────────────────────────────────────
         boolean useMock    = has(args, "--mock");
         boolean rawMode    = has(args, "--raw");
